@@ -4,6 +4,7 @@ from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
+from sentence_transformers import CrossEncoder
 
 load_dotenv()
 
@@ -27,8 +28,19 @@ Question: {question}
 def rag_answer(question):
     chunks = db.similarity_search(question, k=3)         # ⑦ retrieve top 3
     context = "\n\n".join(c.page_content for c in chunks)
+    print(context)
     chain = prompt | model                                # ⑧ same chain trick as Class 2
     return chain.invoke({"context": context, "question": question}).content
 
-print(rag_answer("How long do I have to return something?"))
+# print(rag_answer("How long do I have to return something?"))
 # → "30 days from the purchase date."  ✅ from your data, not a guess
+
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")   # free, fast
+
+def retrieve_with_rerank(question, top_k=1):
+    candidates = db.similarity_search(question, k=25)        # grab 25 cheap candidates
+    pairs = [(question, c.page_content) for c in candidates]
+    scores = reranker.predict(pairs)                          # cross-encoder scores each pair
+    return [c for _, c in sorted(zip(scores, candidates), reverse=True)[:top_k]]
+
+print(retrieve_with_rerank("How long do I have to return something?"))
